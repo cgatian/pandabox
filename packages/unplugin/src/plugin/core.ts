@@ -33,7 +33,13 @@ const premableStart = '/*! PANDA START */'
 const preambleEnd = '/*! PANDA END */'
 const preambleRegex = /\/\*\!\sPANDA\sSTART\s\*\/.*\/\*\!\sPANDA\sEND\s\*\//s
 const throttleWaitMs = 1000
-
+// The current CSS styles
+let currentCss: string | undefined
+let server: ViteDevServer
+/**
+ * Throttle HMR updates to vite server
+ */
+let throttledReloadModule: (mod: ModuleNode) => void
 export interface PandaPluginOptions extends Partial<PandaPluginHooks>, Pick<TransformOptions, 'optimizeJs'> {
   /** @see https://panda-css.com/docs/references/config#cwd */
   cwd?: string
@@ -119,11 +125,6 @@ export const unpluginFactory: UnpluginFactory<PandaPluginOptions | undefined> = 
     return initPromise
   }
 
-  let server: ViteDevServer
-  /**
-   * Throttle HMR updates to vite server
-   */
-  let throttledReloadModule: (mod: ModuleNode) => void
   const updateCss = (_file: string) => {
     if (!server) return
     const mod = server.moduleGraph.getModuleById(outfile)
@@ -133,7 +134,16 @@ export const unpluginFactory: UnpluginFactory<PandaPluginOptions | undefined> = 
     if (outfile !== ids.css.resolved) {
       getCtx().then((ctx) => fs.writeFile(outfile, ctx.toCss(ctx.panda.createSheet(), options)))
     }
-    throttledReloadModule(mod)
+
+    getCtx().then((ctx) => {
+      let css = ctx.toCss(ctx.panda.createSheet(), options)
+      if (outfile !== ids.css.resolved) {
+        fs.writeFile(outfile, css)
+      }
+      if (css !== currentCss) {
+        throttledReloadModule(mod)
+      }
+    })
   }
 
   return {
@@ -165,9 +175,9 @@ export const unpluginFactory: UnpluginFactory<PandaPluginOptions | undefined> = 
 
       const ctx = await getCtx()
       const sheet = ctx.panda.createSheet()
-      const css = ctx.toCss(sheet, options)
+      currentCss = ctx.toCss(sheet, options)
       // console.log('load', { id, outfile, resolved: ids.css.resolved })
-      return `${premableStart}${css}${preambleEnd}`
+      return `${premableStart}${currentCss}${preambleEnd}`
     },
 
     transformInclude(id) {
